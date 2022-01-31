@@ -6,7 +6,6 @@ from datetime import datetime
 
 
 # global values
-bot_token = '1908851765:AAGU9ODojJPWpUARHnwfcmz9xYRufxTGXRI'
 users = {}
 menuStates = {}
 menuStates['default'] = 0
@@ -18,13 +17,18 @@ menuStates['waitNumToDel'] = 5
 menuStates['waitAddPartName'] = 6
 menuStates['waitMonthNum'] = 7
 menuStates['waitDelPartName'] = 8
+menuStates['waitChangeBalance'] = 9
 
 savesFileName = 'db.dat'
 dateMenu = ReplyKeyboardMarkup([['today']])
-mainMenu = ReplyKeyboardMarkup([['expenses', 'add_exp', 'del_exp'], ['parts', 'add_pt', 'del_pt'], ['me']])
+mainMenu = ReplyKeyboardMarkup([['expenses', 'add_exp', 'del_exp'],
+                                ['parts', 'add_pt', 'del_pt'],
+                                ['show balance', 'change balance', 'show accum']])
 monthMenu = ReplyKeyboardMarkup([['1', '2', '3', '4'], ['5', '6', '7', '8'], ['9', '10', '11', '12']])
+with open('settings.txt', 'r') as file:
+    settings = file.read().splitlines()
+    bot_token = settings[0]
 bot = Bot(token=bot_token)
-# user_id = 964090213
 
 
 def getSaves():
@@ -58,7 +62,7 @@ def get_message(update: Update, context):
                 bot.send_message(user_id, 'Напишите номер покупки который хотите удалить')
                 users[user_id]['menuState'] = menuStates['waitNumToDel']
             elif 'me' in msg:
-                bot.send_message(user_id, str(users[user_id]))
+                bot.send_message(user_id, str(users[user_id]), reply_markup=mainMenu)
                 users[user_id]['menuState'] = menuStates['default']
             elif 'expenses' in msg:
                 out = ''
@@ -90,6 +94,16 @@ def get_message(update: Update, context):
             elif 'part' in msg:
                 bot.send_message(user_id, 'Выберите месяц', reply_markup=monthMenu)
                 users[user_id]['menuState'] = menuStates['waitMonthNum']
+            elif 'show accum' in msg:
+                answer = ''
+                for month in users[user_id]['accumulation']:
+                    answer += str(month) + ' месяц: ' + str(users[user_id]['accumulation'][month]) + '\n'
+                bot.send_message(user_id, 'Ваши накопления:\n' + answer, reply_markup=mainMenu)
+            elif 'show balance' in msg:
+                bot.send_message(user_id, 'Ваш баланс: ' + str(users[user_id]['balance']), reply_markup=mainMenu)
+            elif 'change balance' in msg:
+                bot.send_message(user_id, 'На сколько изменить ваш баланс?')
+                users[user_id]['menuState'] = menuStates['waitChangeBalance']
             else:
                 if users[user_id]['menuState'] == menuStates['waitProductName']:
                     users[user_id]['buffer']['name'] = msg
@@ -127,6 +141,10 @@ def get_message(update: Update, context):
                     users[user_id]['expenses'][month]['sum'] = round(users[user_id]['expenses'][month]['sum'], 2)
                     users[user_id]['expenses'][month]['days'][day]['sum'] += users[user_id]['buffer']['price']
                     users[user_id]['expenses'][month]['days'][day]['sum'] = round(users[user_id]['expenses'][month]['days'][day]['sum'], 2)
+
+                    users[user_id]['balance'] -= users[user_id]['buffer']['price']
+                    users[user_id]['accumulation'][month] -= users[user_id]['buffer']['price']
+
                     users[user_id]['buffer'] = {}
                     users[user_id]['prodId'] += 1
                     bot.send_message(user_id, 'Всё готово', reply_markup=mainMenu)
@@ -145,6 +163,8 @@ def get_message(update: Update, context):
                             if msg in users[user_id]['expenses'][month]['days'][day]:
                                 users[user_id]['expenses'][month]['days'][day]['sum'] -= users[user_id]['expenses'][month]['days'][day][msg]['price']
                                 users[user_id]['expenses'][month]['sum'] -= users[user_id]['expenses'][month]['days'][day][msg]['price']
+                                users[user_id]['balance'] += users[user_id]['expenses'][month]['days'][day][msg]['price']
+                                users[user_id]['accumulation'][month] += users[user_id]['expenses'][month]['days'][day][msg]['price']
                                 del users[user_id]['expenses'][month]['days'][day][msg]
                                 break
                     users[user_id]['menuState'] = menuStates['default']
@@ -176,6 +196,16 @@ def get_message(update: Update, context):
                     del users[user_id]['parts'][users[user_id]['parts'].index(msg)]
                     bot.send_message(user_id, 'Удалено успешно', reply_markup=mainMenu)
                     users[user_id]['menuState'] = menuStates['default']
+                elif users[user_id]['menuState'] == menuStates['waitChangeBalance']:
+                    try:
+                        users[user_id]['balance'] += float(msg)
+                        if datetime.now().month in users[user_id]['accumulation']:
+                            users[user_id]['accumulation'][datetime.now().month] += float(msg)
+                        else:
+                            users[user_id]['accumulation'][datetime.now().month] = float(msg)
+                        bot.send_message(user_id, 'Окей, теперь твой баланс: ' + str(users[user_id]['balance']), reply_markup=mainMenu)
+                    except Exception as e:
+                        bot.send_message(user_id, 'Я не могу превратить это число. Напиши что то типо "10.5"')
                 else:
                     bot.send_message(user_id, 'Ничего не понял', reply_markup=mainMenu)
         except Exception as e:
@@ -183,7 +213,7 @@ def get_message(update: Update, context):
             bot.send_message(user_id, 'Error\n' + str(e), reply_markup=mainMenu)
             users[user_id]['menuState'] = menuStates['default']
     else:
-        users[user_id] = {'parts': ['Другое'], 'expenses': {}, 'menuState': 0, 'buffer': {}, 'prodId': 0}
+        users[user_id] = {'parts': ['Другое'], 'expenses': {}, 'accumulation': {}, 'menuState': 0, 'buffer': {}, 'prodId': 0, 'balance': 0}
         bot.send_message(user_id, 'Вы добавлены в систему', reply_markup=mainMenu)
     save()
 
